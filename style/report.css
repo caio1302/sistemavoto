@@ -1,0 +1,140 @@
+/* --- START OF FILE style/report.css --- */
+
+@media print {
+    body {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    color: #333;
+}
+
+.page-container {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 10mm;
+    page-break-after: always;
+    box-sizing: border-box;
+    position: relative;
+    margin: 0 auto;
+}
+
+.page-container:last-child {
+    page-break-after: auto;
+}
+
+.page-header {
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid #0054a6;
+    padding-bottom: 5px;
+}
+
+.header-logo img {
+    height: 10mm;
+}
+
+.page-footer {
+    position: absolute;
+    bottom: 5mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    border-top: 1px solid #ccc;
+    width: calc(100% - 20mm);
+    padding-top: 3px;
+}
+
+.city-title {
+    text-align: left;
+    font-size: 11pt;
+    font-weight: bold;
+    background-color: #f2f2f2;
+    padding: 4px 8px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+}
+
+.section-title {
+    font-size: 10pt;
+    font-weight: bold;
+    text-align: left;
+    background-color: #e0e0e0;
+    padding: 4px 8px;
+    margin-top: 15px;
+    margin-bottom: 8px;
+    border: 1px solid #ccc;
+}
+
+.info-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    border: 1px solid #ccc;
+    margin-bottom: 5px;
+}
+
+.info-table td {
+    border: 1px solid #ccc;
+    padding: 3px 5px;
+    vertical-align: top;
+}
+
+.info-table .label {
+    font-weight: bold;
+}
+
+.card {
+    display: flex;
+    border: 1px solid #ccc;
+    height: 95px;
+    padding: 3px;
+    box-sizing: border-box;
+    overflow: hidden;
+    page-break-inside: avoid;
+}
+
+.card-photo {
+    width: 75px;
+    height: 90px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+}
+
+.card-photo img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: cover;
+}
+
+.card-info {
+    line-height: 1.5;
+    width: 100%;
+    font-size: 9pt;
+}
+
+.card-info .name {
+    font-weight: bold;
+    font-size: 10pt;
+}
+
+.card-info .party {
+    font-weight: bold;
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+/* --- END OF FILE style/report.css --- */

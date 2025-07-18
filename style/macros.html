@@ -1,0 +1,38 @@
+{% macro render_card(candidatura, tags) %}
+    {# O argumento agora é 'candidatura', mas pode ser um objeto Pessoa ou Candidatura #}
+    {% if not candidatura %}
+        <div class="card">
+            <div class="card-info" style="text-align:center; padding-top:30px;">Dados não disponíveis</div>
+        </div>
+    {% else %}
+        {# --- CORREÇÃO FINAL AQUI: Usa a função 'isinstance' para verificar o tipo do objeto --- #}
+        {% set pessoa = candidatura.pessoa if isinstance(candidatura, Candidatura) else candidatura %}
+
+        <div class="card">
+            <div class="card-photo">
+                {# get_photo_uri agora recebe a Candidatura (ou Pessoa) e resolve internamente #}
+                <img src="{{ get_photo_uri(candidatura) }}" alt="Foto de {{ candidatura.nome_urna or pessoa.nome }}">
+            </div>
+            <div class="card-info">
+                {# Linha 1: Nome na Urna e Número - Vem da candidatura, com fallback para Pessoa #}
+                <div class="name">{{ (candidatura.nome_urna or pessoa.apelido or pessoa.nome) | title }} | {{ candidatura.numero_urna or 'S/N' }}</div>
+                
+                {# Seção de candidatura é exibida se o cargo existir no objeto principal #}
+                {# --- CORREÇÃO FINAL AQUI: Verifica se o objeto 'candidatura' é uma instância de Candidatura --- #}
+                {% if isinstance(candidatura, Candidatura) and candidatura.cargo %}
+                <div>
+                    {{ (candidatura.cargo or ' - ') | title }} - 
+                    {{ "{:,}".format(candidatura.votos | int).replace(",", ".") }} votos 
+                    ({{ candidatura.situacao or 'N/A' }})
+                </div>
+                <div class="party">{{ candidatura.partido or '' }}</div>
+                {% endif %}
+
+                {# Dados da Pessoa, sempre acessados através do objeto 'pessoa' #}
+                <div>{{ (pessoa.nome or ' - ') | title }}</div>
+                <div>{{ tags.get('card_label_aniversario', 'ANIVERSÁRIO:') }} {{ pessoa.data_nascimento or '-' }}</div>
+                <div>{{ tags.get('card_label_idade', 'IDADE:') }} {% if pessoa.idade is not none %}{{ pessoa.idade }} {{ tags.get('card_label_idade_suffix', 'anos') }}{% else %}-{% endif %}</div>
+            </div>
+        </div>
+    {% endif %}
+{% endmacro %}

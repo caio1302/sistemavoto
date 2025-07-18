@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório - {{ cidade_upper_com_sufixo }}</title>
+    <style>
+        {{ css_content | safe }}
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="page-header">
+            <div class="header-logo">
+                {% if logo_base64 %}
+                    <img src="data:image/png;base64,{{ logo_base64 }}" alt="Logo">
+                {% else %}
+                    <img src="" alt="Logo Indisponível">
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="city-title">{{ cidade_upper_com_sufixo }} (Eleição {{ ano_eleicao }})</div>
+
+        {# Seção de Informações Municipais (reutilizada) #}
+        {% if prefeitura_data %}
+        <div class="section-title">{{ tags.get('title_section_info', 'INFORMAÇÕES MUNICIPAIS') }}</div>
+        <table class="info-table">
+            <tr>
+                <td><span class="label">{{ tags.get('label_prefeitura', 'Prefeitura:') }}</span> {{ prefeitura_data.get('endereco') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_cep', 'CEP:') }}</span> {{ prefeitura_data.get('cep') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_cod_ibge', 'Cód. IBGE:') }}</span> {{ prefeitura_data.get('cod_ibge') or ' - ' }}</td>
+            </tr>
+            <tr>
+                <td><span class="label">{{ tags.get('label_site', 'Site:') }}</span> {{ prefeitura_data.get('url') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_populacao', 'População:') }}</span> {{ prefeitura_data.get('populacao_formatada') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_dens_demografica', 'Dens. Demográfica:') }}</span> {{ prefeitura_data.get('densidade_demografica_calculada') or ' - ' }}</td>                     
+            </tr>
+            <tr>
+                <td><span class="label">{{ tags.get('label_email', 'Email:') }}</span> {{ prefeitura_data.get('email') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_tel', 'Tel:') }}</span> {{ prefeitura_data.get('tel') or ' - ' }}</td>
+                <td><span class="label">{{ tags.get('label_gentilico', 'Gentílico:') }}</span> {{ prefeitura_data.get('gentilico') or ' - ' }}</td>
+            </tr>
+        </table>
+        {% endif %}
+
+        {# Card de Destaque (reutilizado) #}
+
+        {% if candidato_destaque %}
+        {# --- MUDANÇA: Usa a nova variável 'titulo_proprietario' --- #}
+        <div class="section-title">{{ titulo_proprietario }}</div>
+        <div class="grid-container-single">
+            {{ macros.render_card(candidato_destaque, tags) }}
+        </div>
+        {% endif %}
+
+        {# --- SEÇÃO DE RANKINGS (LÓGICA PRINCIPAL DESTE TEMPLATE) --- #}
+        {% if rankings %}
+            {% for cargo, candidatos in rankings.items() %}
+                {% if candidatos %}
+                <div class="section-title">TOP 5 - {{ cargo | title }} ({{ ano_eleicao }})</div>
+                <div class="grid-container">
+                    {% for candidato in candidatos %}
+                        <div>{{ macros.render_card(candidato, tags) }}</div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            {% endfor %}
+        {% else %}
+            <div class="section-title">Nenhum ranking de votação encontrado para esta cidade e ano.</div>
+        {% endif %}
+        
+        <div class="page-footer">
+            <div>e-Votos {{ now.year }}</div>
+            <div>Pág. 1 de 1</div> {# Simplificado para uma página por enquanto #}
+        </div>
+    </div>
+</body>
+</html>

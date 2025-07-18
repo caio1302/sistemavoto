@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório - {{ cidade_upper_com_sufixo }}</title>
+    <style>
+        {{ css_content | safe }}
+    </style>
+</head>
+<body>
+    {# Este é um loop principal que itera sobre as páginas que precisam ser geradas. #}
+    {# A lógica para dividir os vereadores em páginas será feita em Python. #}
+    {% for page in pages %}
+    <div class="page-container">
+        <div class="page-header">
+            <div class="header-logo">
+                {# A variável logo_base64 será passada pelo Python #}
+                {% if logo_base64 %}
+                    <img src="data:image/png;base64,{{ logo_base64 }}" alt="Logo">
+                {% else %}
+                    <img src="" alt="Logo Indisponível">
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="city-title">{{ cidade_upper_com_sufixo }} (Eleição {{ ano_eleicao_municipal }})</div>
+
+        {# ================== CONTEÚDO DA PRIMEIRA PÁGINA ================== #}
+        {% if loop.first %} {# loop.first é uma variável especial da Jinja que é verdadeira apenas na primeira iteração #}
+            
+            {# Seção de Informações Municipais #}
+            {% if prefeitura_data %}
+            <div class="section-title">{{ tags.get('title_section_info', 'INFORMAÇÕES MUNICIPAIS') }}</div>
+            <table class="info-table">
+                <tr>
+                    <td><span class="label">{{ tags.get('label_prefeitura', 'Prefeitura:') }}</span> {{ prefeitura_data.get('endereco') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_cep', 'CEP:') }}</span> {{ prefeitura_data.get('cep') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_cod_ibge', 'Cód. IBGE:') }}</span> {{ prefeitura_data.get('cod_ibge') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_aniversario_cidade', 'Aniversário:') }}</span> {{ prefeitura_data.get('aniversario') or ' - ' }}</td>
+                </tr>
+                <tr>
+                    <td><span class="label">{{ tags.get('label_site', 'Site:') }}</span> {{ prefeitura_data.get('url') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_populacao', 'População:') }}</span> {{ prefeitura_data.get('populacao_formatada') or ' - ' }}</td>
+                    <!-- <td><span class="label">{{ tags.get('label_dens_demografica', 'Dens. Demográfica:') }}</span> {{ prefeitura_data.get('dens_demo') or ' - ' }}</td> -->
+                    <td><span class="label">{{ tags.get('label_dens_demografica', 'Dens. Demográfica:') }}</span> {{ prefeitura_data.get('densidade_demografica_calculada') or ' - ' }}</td>                     
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><span class="label">{{ tags.get('label_email', 'Email:') }}</span> {{ prefeitura_data.get('email') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_tel', 'Tel:') }}</span> {{ prefeitura_data.get('tel') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_gentilico', 'Gentílico:') }}</span> {{ prefeitura_data.get('gentilico') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_area', 'Área:') }}</span> {{ prefeitura_data.get('area_formatada') or ' - ' }}</td>
+                </tr>
+            </table>
+            <table class="info-table">
+                <tr>
+                    <td><span class="label">{{ tags.get('label_idhm_geral', 'IDHM Geral:') }}</span> {{ prefeitura_data.get('idhm_geral') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_idhm_longevidade', 'Longevidade:') }}</span> {{ prefeitura_data.get('idhm_long') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_mulheres', 'Mulheres (Eleitorado):') }}</span> {{ prefeitura_data.get('eleitorado_feminino_formatado') or '0' }}</td>
+                </tr>
+                <tr>
+                    <td><span class="label">{{ tags.get('label_idhm_renda', 'Renda:') }}</span> {{ prefeitura_data.get('idhm_renda') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_idhm_educacao', 'Educação:') }}</span> {{ prefeitura_data.get('idhm_educ') or ' - ' }}</td>
+                    <td><span class="label">{{ tags.get('label_homens', 'Homens (Eleitorado):') }}</span> {{ prefeitura_data.get('eleitorado_masculino_formatado') or '0' }}</td>
+                </tr>
+                <tr>
+                    <td colspan="2"></td>
+                    <td><span class="label">{{ tags.get('label_total', 'Total (Eleitorado):') }}</span> {{ prefeitura_data.get('eleitorado_total_formatado') or '0' }}</td>
+                </tr>
+            </table>
+            {% endif %}
+
+            {% if candidato_destaque %}
+            {# --- MUDANÇA: Usa a nova variável 'titulo_proprietario' --- #}
+            <div class="section-title">{{ titulo_proprietario }}</div>
+            <div class="grid-container-single">
+                {{ macros.render_card(candidato_destaque, tags) }}
+            </div>
+            {% endif %}
+
+            {# Seção do Poder Executivo (Prefeito e Vice) #}
+            {% if prefeito or vice %}
+            <div class="section-title">{{ tags.get('title_section_executivo', 'PODER EXECUTIVO') }} ({{ ano_eleicao_municipal }})</div>
+            <div class="grid-container">
+                <div>{{ macros.render_card(prefeito, tags) }}</div>
+                <div>{{ macros.render_card(vice, tags) }}</div>
+            </div>
+            {% endif %}
+
+        {% endif %} {# Fim do if loop.first #}
+
+        {# ================== SEÇÃO DE VEREADORES (TODAS AS PÁGINAS) ================== #}
+        {% if page.vereadores %}
+            {% if loop.first %}
+                <div class="section-title">{{ tags.get('title_section_legislativo', 'PODER LEGISLATIVO') }} ({{ ano_eleicao_municipal }})</div>
+            {% else %}
+                <div class="section-title">{{ tags.get('title_section_legislativo', 'PODER LEGISLATIVO') }} ({{ ano_eleicao_municipal }}) (continuação)</div>
+            {% endif %}
+            <div class="grid-container">
+                {% for vereador in page.vereadores %}
+                    <div>{{ macros.render_card(vereador, tags) }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        
+        <div class="page-footer">
+            <div>e-Votos {{ now.year }}</div>
+            <div>Pág. {{ loop.index }} de {{ loop.length }}</div>
+        </div>
+    </div>
+    {% endfor %} {# Fim do loop de páginas #}
+</body>
+</html>
