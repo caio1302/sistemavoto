@@ -15,7 +15,7 @@ def execute_backup_thread(options: dict, progress_win):
         progress_win.after(0, lambda: progress_win.update_progress("Coletando arquivos...", 0.05))
         files_to_backup = []
         base_path = Path(config.BASE_PATH)
-        excluded_dirs = {'__pycache__', 'backups', '.venv', 'venv', 'archive'}
+        excluded_dirs = {'__pycache__', 'backups', '.venv', 'venv', 'archive', 'auxiliares'}
         
         selected_exts = {ext for ext, checked in options.items() if checked and ext.startswith('.')}
         include_images = options.get("images", False)
@@ -34,7 +34,7 @@ def execute_backup_thread(options: dict, progress_win):
                 if ext in selected_exts:
                     files_to_backup.append(file_path)
                 elif include_images and ext in ['.png', '.jpg', '.jpeg', '.ico', '.gif']:
-                    if any(folder in str(file_path) for folder in ['assets', 'fotos_atualizadas', 'fotos_tse_cache', 'auxiliares']):
+                    if any(folder in str(file_path) for folder in ['assets', 'fotos_atualizadas', 'fotos_tse_cache']):
                         files_to_backup.append(file_path)
 
         if not files_to_backup:

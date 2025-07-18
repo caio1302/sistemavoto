@@ -26,6 +26,7 @@ class BackupOptionsWindow(ctk.CTkToplevel):
             ".txt": "Arquivos de Texto e Configuração (.txt)",
             ".json": "Arquivos de Cache e Tags (.json)",
             "images": "Imagens (Logo, Fotos Customizadas, Placeholders)",
+            ".env": "Chave API do Google"
         }
 
         for key, text in options.items():

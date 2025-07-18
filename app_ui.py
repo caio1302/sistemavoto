@@ -50,6 +50,8 @@ class MainApplication(ctk.CTk):
         self.logged_in_user = user
         self.repos = repos
         self.base_path = config.BASE_PATH
+        self.view_cache = {} # Adiciona este dicionário para guardar os módulos
+
 
         self.title("e-Votos - Sistema de Gestão Política")
         self.geometry("1400x900") 
@@ -82,7 +84,12 @@ class MainApplication(ctk.CTk):
         self.register_event("open_form", self._handle_open_form)
         self.register_event("open_dashboard", self.open_dashboard_window)
         self.register_event("data_changed", self.on_data_changed)
+        self.register_event("navigate_with_filter", self._handle_navigation_with_filter) # <-- ADICIONA ESTA LINHA
 
+    def _handle_navigation_with_filter(self, module_name: str, initial_filters: dict):
+        """Manipulador para o novo evento que carrega um módulo com filtros iniciais."""
+        # A lógica é a mesma do _load_module, mas passando os filtros
+        self._load_module(module_name, initial_filters=initial_filters)
 
     def register_event(self, event_name, callback):
         # ... (código inalterado)
@@ -205,22 +212,35 @@ class MainApplication(ctk.CTk):
         self.status_bar_label = ctk.CTkLabel(self.status_bar_frame, text="Pronto.", anchor="w", font=self.font_normal)
         self.status_bar_label.pack(side="left", padx=10, pady=5, fill="both", expand=True)
 
-    def _load_module(self, module_name: str):
+    def _load_module(self, module_name: str, initial_filters: dict | None = None):
+        # A MUDANÇA AQUI é adicionar o argumento 'initial_filters'
         if self._current_module_frame:
-            self._current_module_frame.destroy()
-        view_map = {
-            "Painel": DashboardView, "Contatos": ContactsView, "Atendimentos": AtendimentosView,
-            "Proposições": ProposicoesView, "Agenda": AgendaView, "Cerimonial": CerimonialView,
-            "Geolocalização": GeolocalizacaoView, "Configurações": SettingsView
-        }
-        view_class = view_map.get(module_name)
-        if view_class:
-            self._current_module_frame = view_class(self.main_content_frame, self.repos, self)
-            self._current_module_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            self._current_module_frame.grid_remove()
+
+        if module_name in self.view_cache:
+            self._current_module_frame = self.view_cache[module_name]
+            # Se a view já existe e tem um método para aplicar filtros, chama-o
+            if hasattr(self._current_module_frame, 'apply_filters') and initial_filters:
+                self._current_module_frame.apply_filters(initial_filters)
+            self._current_module_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         else:
-            self._current_module_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
-            ctk.CTkLabel(self._current_module_frame, text=f"{module_name}", font=self.font_header).pack(pady=20)
-            self._current_module_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+            # 3. Se é a primeira vez, cria o módulo
+            view_map = {
+                "Painel": DashboardView, "Contatos": ContactsView, "Atendimentos": AtendimentosView,
+                "Proposições": ProposicoesView, "Agenda": AgendaView, "Cerimonial": CerimonialView,
+                "Geolocalização": GeolocalizacaoView, "Configurações": SettingsView
+            }
+            view_class = view_map.get(module_name)
+            if view_class:
+                # Passa os filtros para o construtor da view
+                self._current_module_frame = view_class(self.main_content_frame, self.repos, self, initial_filters=initial_filters)
+                self.view_cache[module_name] = self._current_module_frame
+                self._current_module_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+            else:
+                # Fallback para módulos não encontrados
+                self._current_module_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
+                ctk.CTkLabel(self._current_module_frame, text=f"{module_name}", font=self.font_header).pack(pady=20)
+                self._current_module_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
 
     def open_dashboard_window(self, cidade: str, ano: int):
@@ -244,12 +264,28 @@ class MainApplication(ctk.CTk):
 
     def _on_close_main_window(self):
         if messagebox.askyesno("Sair", "Tem certeza que deseja fechar o sistema?"):
-            self.destroy()
+            self.destroy() # Chama o nosso novo método de destroy robusto
 
     def destroy(self):
+        logging.info("Iniciando processo de encerramento controlado...")
+        # Itera sobre todos os módulos que foram abertos e guardados no cache
+        for view_name, view_instance in self.view_cache.items():
+            # Se o módulo tiver um método de limpeza, chama-o
+            if hasattr(view_instance, 'cleanup'):
+                logging.info(f"Executando cleanup para {view_name}...")
+                try:
+                    view_instance.cleanup()
+                except Exception as e:
+                    logging.error(f"Erro durante o cleanup de {view_name}: {e}")
+
+        # --- LINHA DE CORREÇÃO ADICIONADA AQUI ---
+        # Força o processamento de todas as tarefas de UI pendentes antes de continuar.
+        self.update_idletasks()
+
         if self.status_bar_handler:
             logging.getLogger().removeHandler(self.status_bar_handler)
             self.status_bar_handler = None
+        
         logging.info("Aplicação finalizada pelo usuário.")
         super().destroy()
         

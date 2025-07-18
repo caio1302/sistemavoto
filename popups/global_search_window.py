@@ -24,6 +24,8 @@ class GlobalSearchWindow(tk.Toplevel):
         ui_helpers.center_window(self)
         self._create_global_search_widgets()
 
+# Em popups/global_search_window.py
+
     def _create_global_search_widgets(self):
         search_options_frame = ttk.Frame(self, style="TFrame", padding="10")
         search_options_frame.pack(fill=tk.X)
@@ -47,10 +49,29 @@ class GlobalSearchWindow(tk.Toplevel):
         results_display_frame = ttk.Frame(self, style="TFrame", padding="10")
         results_display_frame.pack(fill=tk.BOTH, expand=True)
         
+        # --- INÍCIO DA CORREÇÃO ---
+
+        # 1. Criação e configuração do estilo personalizado
+        style = ttk.Style(self)
+        # Define uma fonte menor e uma altura de linha mais compacta
+        style.configure("Compact.Treeview", font=(config.FONT_FAMILY, 9), rowheight=22)
+        style.configure("Compact.Treeview.Heading", font=(config.FONT_FAMILY, 10, "bold"))
+
+        # 2. Aplicação do novo estilo ao Treeview
         results_cols = ("Nome Urna", "Cargo", "Partido", "Cidade", "Ano Eleição", "Votos")
-        self.results_treeview = ttk.Treeview(results_display_frame, columns=results_cols, show="headings", selectmode="browse")
+        self.results_treeview = ttk.Treeview(results_display_frame, columns=results_cols, show="headings", selectmode="browse", style="Compact.Treeview")
         
-        col_widths_map = {"Nome Urna": 250, "Cargo": 150, "Partido": 100, "Cidade": 180, "Ano Eleição": 80, "Votos": 80}
+        # 3. Reajuste da largura das colunas
+        col_widths_map = {
+            "Nome Urna": 240, 
+            "Cargo": 140, 
+            "Partido": 90, 
+            "Cidade": 170, 
+            "Ano Eleição": 70, 
+            "Votos": 80
+        }
+        # --- FIM DA CORREÇÃO ---
+
         col_anchors_map = {"Nome Urna": 'w', "Cargo": 'w', "Partido": 'center', "Cidade": 'w', "Ano Eleição": 'center', "Votos": 'e'}
         for col_id in results_cols:
             self.results_treeview.heading(col_id, text=col_id)
@@ -63,7 +84,7 @@ class GlobalSearchWindow(tk.Toplevel):
         vsb_results.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.results_treeview.bind("<Double-1>", self.on_result_double_click) 
-        search_entry_widget.focus_set() 
+        search_entry_widget.focus_set()
 
     def perform_global_search(self, event=None): 
         search_term_str = self.search_term_var.get().strip()

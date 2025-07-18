@@ -199,96 +199,7 @@ class ReportService:
         except Exception as e:
             logging.error(f"Erro ao buscar dados do cerimonial para {cidade}/{ano}: {e}", exc_info=True)
             return data
-
-    # def get_cerimonial_data(self, cidade: str, ano: int) -> dict:
-    #     if not cidade or not ano: return {}
-    #     data = {"prefeito": None, "vice": None, "vereadores": [], "prefeitura": {}, "candidato_destaque": None, "ranking_2022": {}}
-        
-    #     try:
-    #         cursor = self.conn.cursor()
-    #         cidade_key = data_helpers.normalize_city_key(cidade)
-    #         is_federal_or_state_election = ano % 4 == 2
-
-    #         def get_candidaturas(cargo: str, situacoes: list, limit=None) -> list[Candidatura]:
-    #             results = self.person_repo.search_candidaturas(search_term=cidade, criteria='Cidade', ano_ref=ano)
-    #             filtered = [c for c in results if c.cargo == cargo and c.situacao in situacoes]
-    #             sorted_results = sorted(filtered, key=lambda c: c.votos, reverse=True)
-    #             return sorted_results[:limit] if limit else sorted_results
-
-    #         if not is_federal_or_state_election:
-    #             data['prefeito'] = next(iter(get_candidaturas('PREFEITO', ['ELEITO'], limit=1)), None)
-    #             data['vice'] = next(iter(get_candidaturas('VICE-PREFEITO', ['ELEITO'], limit=1)), None)
-    #             data['vereadores'] = get_candidaturas('VEREADOR', ['ELEITO', 'ELEITO POR QP', 'ELEITO POR MÉDIA', 'REELEITO'])
-    #         else:
-    #             data['ranking_2022'] = self.get_ranking_por_cargo(cidade_key, ano)
-
-    #         # --- LÓGICA REFINADA PARA O CANDIDATO DESTAQUE ---
-    #         id_pessoa_proprietario = self.misc_repo.get_app_setting('proprietario_id_pessoa')
-    #         if id_pessoa_proprietario:
-    #             proprietario_obj = self.person_repo.get_person_details(int(id_pessoa_proprietario))
-                
-    #             if proprietario_obj:
-    #                 # Fallback inicial: o candidato destaque é o objeto Pessoa simples
-    #                 data['candidato_destaque'] = proprietario_obj
-                    
-    #                 # Tenta encontrar a última candidatura eleita
-    #                 situacoes_eleito = ['ELEITO', 'ELEITO POR QP', 'ELEITO POR MÉDIA', 'REELEITO']
-    #                 ultima_eleicao_vencida = next(
-    #                     (cand for cand in proprietario_obj.historico_candidaturas if cand.get('situacao') in situacoes_eleito), 
-    #                     None
-    #                 )
-
-    #                 if ultima_eleicao_vencida:
-    #                     sq_cand_eleito = ultima_eleicao_vencida.get('sq_candidato')
-    #                     ano_eleito = ultima_eleicao_vencida.get('ano_eleicao')
-                        
-    #                     cursor.execute(
-    #                         "SELECT votos FROM votos_por_municipio WHERE sq_candidato = ? AND cidade = ? AND ano_eleicao = ?",
-    #                         (sq_cand_eleito, cidade_key, ano_eleito)
-    #                     )
-    #                     votos_row = cursor.fetchone()
-                        
-    #                     votos_na_cidade = votos_row['votos'] if votos_row and votos_row['votos'] is not None else 0
-
-    #                     # Se encontrou votos para a cidade no ano eleito, cria um objeto Candidatura customizado
-    #                     if votos_na_cidade > 0:
-    #                         candidatura_destaque = Candidatura(
-    #                             pessoa=proprietario_obj,
-    #                             id_candidatura=ultima_eleicao_vencida.get('id_candidatura', 0),
-    #                             id_pessoa=proprietario_obj.id_pessoa,
-    #                             ano_eleicao=ano_eleito,
-    #                             sq_candidato=sq_cand_eleito,
-    #                             nome_urna=ultima_eleicao_vencida.get('nome_urna'),
-    #                             numero_urna=ultima_eleicao_vencida.get('numero_urna'),
-    #                             partido=ultima_eleicao_vencida.get('partido'),
-    #                             cargo=ultima_eleicao_vencida.get('cargo'),
-    #                             situacao=ultima_eleicao_vencida.get('situacao'),
-    #                             votos=votos_na_cidade,
-    #                             cidade=cidade # Cidade do contexto do relatório
-    #                         )
-    #                         # Substitui o objeto Pessoa pelo objeto Candidatura completo
-    #                         data['candidato_destaque'] = candidatura_destaque
-    #                         logging.info(f"Candidato destaque '{proprietario_obj.nome}' encontrado com {votos_na_cidade} votos em '{cidade}' na eleição de {ano_eleito}.")
-    #                 else:
-    #                     logging.info(f"Nenhuma candidatura vitoriosa encontrada para o proprietário '{proprietario_obj.nome}'. Exibindo como contato.")
-            
-    #         query_municipio = """
-    #             SELECT m.*, e.total as eleitorado_total, e.masculino as eleitorado_masculino, e.feminino as eleitorado_feminino,
-    #                    o.endereco, o.cep, o.email, o.telefone as tel, o.website as url
-    #             FROM municipios m
-    #             LEFT JOIN eleitorado e ON m.id = e.id_municipio AND e.ano = (SELECT MAX(ano) FROM eleitorado WHERE id_municipio = m.id AND ano <= ?)
-    #             LEFT JOIN organizacoes o ON m.id = o.id_municipio AND o.tipo_organizacao = 'Prefeitura'
-    #             WHERE m.cidade_key = ?
-    #         """
-    #         cursor.execute(query_municipio, (ano, cidade_key))
-    #         municipio_completo_row = cursor.fetchone()
-    #         if municipio_completo_row:
-    #             data['prefeitura'] = dict(municipio_completo_row)
-    #         return data
-    #     except Exception as e:
-    #         logging.error(f"Erro ao buscar dados do cerimonial para {cidade}/{ano}: {e}", exc_info=True)
-    #         return data
-    
+   
     def get_ranking_por_cargo(self, cidade_key: str, ano: int) -> dict[str, list[Candidatura]]:
         ranking_data = defaultdict(list)
         try:
@@ -356,3 +267,79 @@ class ReportService:
         except sqlite3.Error as e:
             logging.error(f"Erro ao buscar estatísticas do dashboard: {e}", exc_info=True)
             return stats
+
+    def get_new_contacts_per_month(self, months_ago=12) -> dict[str, int]:
+            """
+            Busca o número de novos contatos (pessoas) criados por mês nos últimos 'months_ago' meses.
+            Retorna um dicionário como {'JAN/25': 15, 'FEV/25': 28, ...}.
+            """
+            try:
+                # Adicionado para importar datetime se ainda não estiver no arquivo
+                from datetime import datetime, timedelta
+
+                today = datetime.now()
+                # Garante que a data de início seja calculada corretamente
+                start_date = today - timedelta(days=365) # Busca o último ano completo
+
+                query = """
+                    SELECT
+                        STRFTIME('%m/%Y', data_criacao) as mes_ano,
+                        COUNT(id_pessoa) as contagem
+                    FROM
+                        pessoas
+                    WHERE
+                        data_criacao >= ?
+                    GROUP BY
+                        mes_ano
+                    ORDER BY
+                        SUBSTR(mes_ano, 4, 4), SUBSTR(mes_ano, 1, 2)
+                    LIMIT ?;
+                """
+                cursor = self.conn.cursor()
+                cursor.execute(query, (start_date.strftime('%Y-%m-%d 00:00:00'), months_ago))
+
+                month_map = {1: 'JAN', 2: 'FEV', 3: 'MAR', 4: 'ABR', 5: 'MAI', 6: 'JUN', 7: 'JUL', 8: 'AGO', 9: 'SET', 10: 'OUT', 11: 'NOV', 12: 'DEZ'}
+
+                results = {}
+                for row in cursor.fetchall():
+                    mes, ano = row['mes_ano'].split('/')
+                    ano_curto = ano[2:]
+                    mes_abrev = month_map.get(int(mes), '???')
+                    results[f"{mes_abrev}/{ano_curto}"] = row['contagem']
+
+                return results
+            except sqlite3.Error as e:
+                logging.error(f"Erro ao buscar novos contatos por mês: {e}", exc_info=True)
+                return {}
+            
+    def get_candidate_count_by_role_year(self) -> list[dict]:
+        """
+        Busca a contagem de candidaturas agrupadas por ano e cargo.
+        Retorna uma lista de dicionários, ex: [{'ano_eleicao': 2024, 'cargo': 'VEREADOR', 'contagem': 150}]
+        """
+        try:
+            cursor = self.conn.cursor()
+            # Seleciona apenas os cargos mais relevantes para evitar poluir o gráfico
+            cargos_relevantes = ('PREFEITO', 'VICE-PREFEITO', 'VEREADOR', 'DEPUTADO ESTADUAL', 'DEPUTADO FEDERAL')
+            
+            placeholders = ','.join(['?'] * len(cargos_relevantes))
+            
+            query = f"""
+                SELECT
+                    ano_eleicao,
+                    cargo,
+                    COUNT(id_candidatura) as contagem
+                FROM
+                    candidaturas
+                WHERE
+                    cargo IN ({placeholders})
+                GROUP BY
+                    ano_eleicao, cargo
+                ORDER BY
+                    ano_eleicao DESC, cargo ASC;
+            """
+            cursor.execute(query, cargos_relevantes)
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logging.error(f"Erro ao buscar contagem de candidatos por cargo/ano: {e}", exc_info=True)
+            return []            

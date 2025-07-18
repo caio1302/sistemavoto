@@ -36,7 +36,19 @@ class PersonRepository:
 
         if filters.get('only_candidates'):
             where_clauses.append("c.sq_candidato IS NOT NULL")
+
+        # --- MUDANÇAS AQUI PARA OS NOVOS FILTROS ---
+        ano = filters.get('ano_eleicao')
+        if ano and str(ano).upper() != "TODOS":
+            where_clauses.append("c.ano_eleicao = ?")
+            params.append(ano)
             
+        cargo = filters.get('cargo')
+        if cargo and str(cargo).upper() != "TODOS":
+            where_clauses.append("c.cargo = ?")
+            params.append(cargo)
+        # --- FIM DAS MUDANÇAS ---
+
         where_sql = ""
         if where_clauses:
             where_sql = " WHERE " + " AND ".join(where_clauses)
