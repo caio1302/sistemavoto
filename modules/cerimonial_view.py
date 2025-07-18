@@ -15,7 +15,7 @@ from functions import data_helpers
 import config
 
 class CerimonialView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app):
+    def __init__(self, parent, repos: dict, app, initial_filters=None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app

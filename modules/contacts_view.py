@@ -12,28 +12,28 @@ from dto.pessoa import Pessoa
 from dto.organizacao import Organizacao
 from modules.new_list_window import NewListWindow
 from functions import data_helpers
-# --- ALTERAÇÃO: Remove a importação da classe que não existe mais ---
 from modules.custom_widgets import CTkScrollableComboBox
 from modules.organization_form_window import OrganizationFormWindow
 
 class ContactsView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app):
+    def __init__(self, parent, repos: dict, app, initial_filters: dict | None = None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app
+        self.initial_filters = initial_filters
         
+        # --- Estado da View ---
+        self.sidebar_is_open = True
         self.person_current_page = 1
         self.person_total_pages = 0
-        self.person_items_per_page = 50
+        self.person_items_per_page = 200
         self.person_last_sort_column = "ID" 
         self.person_last_sort_reverse = True 
-
         self.org_current_page = 1
         self.org_total_pages = 0
         self.org_items_per_page = 50
         self.org_last_sort_column = "ID"
         self.org_last_sort_reverse = False
-
         self.selected_contact_id = None
         self.selected_org_id = None
         self.active_list_button = None
@@ -41,13 +41,36 @@ class ContactsView(ctk.CTkFrame):
         self._data_fetch_lock = threading.Lock()
         self._search_job_id = None
 
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_columnconfigure(2, weight=0, minsize=450)
+        # --- CORREÇÃO PRINCIPAL DA GRELHA ---
         self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=0, minsize=320)  # Coluna do Painel de Listas (tamanho fixo)
+        self.grid_columnconfigure(1, weight=1)              # Coluna Central (expande)
+        self.grid_columnconfigure(2, weight=0, minsize=450) # Coluna de Detalhes (tamanho fixo)
         
         self._load_icons()
         self._create_widgets()
         self.refresh_lists_panel()
+
+        if self.initial_filters:
+            self.apply_filters(self.initial_filters)
+
+# --- ADICIONE ESTA LINHA NO FINAL DO __init__ ---
+        self._toggle_sidebar() # Fecha o painel assim que ele é criado            
+    
+    def apply_filters(self, filters: dict):
+        """Aplica um conjunto de filtros à UI e recarrega os dados."""
+        if not filters: return
+        
+        ano = filters.get("ano_eleicao")
+        if ano:
+            self.ano_eleicao_selector.set(str(ano))
+
+        cargo = filters.get("cargo")
+        if cargo:
+            self.cargo_selector.set(cargo)
+        
+        # Após aplicar os filtros na UI, dispara a busca
+        self._on_filter_changed()            
 
     def _load_icons(self):
         try:
@@ -56,9 +79,12 @@ class ContactsView(ctk.CTkFrame):
             logging.warning(f"Erro ao carregar ícone placeholder: {e}")
             self.icon_placeholder = None
 
+# Em modules/contacts_view.py
+
     def _create_widgets(self):
+        # Painel da Esquerda (Listas) - Coluna 0
         self.left_panel = ctk.CTkFrame(self, width=320, corner_radius=0)
-        self.left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.left_panel.grid(row=0, column=0, sticky="nsew")
         self.left_panel.grid_propagate(False)        
         ctk.CTkLabel(self.left_panel, text="Listas de Contatos", font=ctk.CTkFont(weight="bold")).pack(pady=10, padx=10)
         self.lists_scrollable_frame = ctk.CTkScrollableFrame(self.left_panel, label_text="")
@@ -67,91 +93,141 @@ class ContactsView(ctk.CTkFrame):
         new_list_buttons_frame.pack(pady=10, padx=10, fill="x")
         ctk.CTkButton(new_list_buttons_frame, text="Nova Lista", command=self.open_new_list_form).pack(fill="x")
         
+        # Painel de Conteúdo Principal - Coluna 1
         self.content_panel = ctk.CTkFrame(self, fg_color="transparent")
         self.content_panel.grid(row=0, column=1, sticky="nsew")
-        self.content_panel.grid_rowconfigure(0, weight=1)
+        self.content_panel.grid_rowconfigure(1, weight=1)
         self.content_panel.grid_columnconfigure(0, weight=1)
+
+        # Cabeçalho permanente para o conteúdo
+        header = ctk.CTkFrame(self.content_panel, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        header.grid_columnconfigure(1, weight=1)
+        
+        self.toggle_button = ctk.CTkButton(header, text="◀", width=20, command=self._toggle_sidebar)
+        self.toggle_button.grid(row=0, column=0, sticky="w")
+        self.view_title_label = ctk.CTkLabel(header, text="", font=ctk.CTkFont(size=16, weight="bold"))
+        self.view_title_label.grid(row=0, column=1, sticky="w", padx=10)
+        self.new_entity_button = ctk.CTkButton(header, text="")
+        self.new_entity_button.grid(row=0, column=2, sticky="e")
+
+        # Container para as views (Pessoas / Organizações)
+        self.view_container = ctk.CTkFrame(self.content_panel, fg_color="transparent")
+        self.view_container.grid(row=1, column=0, sticky="nsew")
+        self.view_container.grid_rowconfigure(0, weight=1)
+        self.view_container.grid_columnconfigure(0, weight=1)
+
         self._create_person_panel()
         self._create_org_panel()
 
+        # Painel da Direita (Detalhes) - Coluna 2
         self.right_panel = ctk.CTkFrame(self, corner_radius=0, width=450)
-        self.right_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+        self.right_panel.grid(row=0, column=2, sticky="nsew")
         self.right_panel.grid_propagate(False)
         self.right_panel.grid_rowconfigure(1, weight=1)
         self.right_panel.grid_columnconfigure(0, weight=1)
         self._create_right_panel_widgets()
         self._clear_right_panel()
 
+ 
+
+    def _toggle_sidebar(self):
+        if self.sidebar_is_open:
+            self.left_panel.grid_remove()
+            self.grid_columnconfigure(0, minsize=0)
+            self.toggle_button.configure(text="▶")
+            self.sidebar_is_open = False
+        else:
+            self.left_panel.grid(row=0, column=0, sticky="nsew")
+            self.grid_columnconfigure(0, minsize=320)
+            self.toggle_button.configure(text="◀")
+            self.sidebar_is_open = True  
+
+
     def _create_person_panel(self):
-        self.person_panel = ctk.CTkFrame(self.content_panel, corner_radius=0, fg_color="transparent")
-        self.person_panel.grid_rowconfigure(2, weight=1) 
+        self.person_panel = ctk.CTkFrame(self.view_container, corner_radius=0, fg_color="transparent")
+        self.person_panel.grid_rowconfigure(1, weight=1)
         self.person_panel.grid_columnconfigure(0, weight=1)
-        header = ctk.CTkFrame(self.person_panel, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
-        header.grid_columnconfigure(0, weight=1)
-        self.person_title_label = ctk.CTkLabel(header, text="Pessoas", font=ctk.CTkFont(size=16, weight="bold"))
-        self.person_title_label.grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(header, text="Nova Pessoa", command=lambda: self.app.dispatch("open_form", form_name="person", parent_view=self)).grid(row=0, column=1, sticky="e")
+        
         filters = ctk.CTkFrame(self.person_panel, fg_color="transparent")
-        filters.grid(row=1, column=0, sticky="ew", padx=10, pady=(0,10))
-        filters.grid_columnconfigure(0, weight=1)
+        filters.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(0,10))
+        filters.grid_columnconfigure(0, weight=4)
+        filters.grid_columnconfigure(1, weight=1)
+        filters.grid_columnconfigure(2, weight=1)
+        filters.grid_columnconfigure(3, weight=2)
+        filters.grid_columnconfigure(4, weight=0)
         self.person_search_entry = ctk.CTkEntry(filters, placeholder_text="Buscar por nome ou apelido...")
         self.person_search_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
         self.person_search_entry.bind("<KeyRelease>", self._on_search_key_release)
         misc_repo = self.repos.get("misc")
+        anos = ["Todos"] + (misc_repo.get_anos_de_eleicao() if misc_repo else [])
+        self.ano_eleicao_selector = ctk.CTkOptionMenu(filters, values=anos, command=self._on_filter_changed)
+        self.ano_eleicao_selector.set("Todos")
+        self.ano_eleicao_selector.grid(row=0, column=1, padx=5, sticky="ew")
+        cargos = ["Todos", "PREFEITO", "VICE-PREFEITO", "VEREADOR", "DEPUTADO ESTADUAL", "DEPUTADO FEDERAL"]
+        self.cargo_selector = ctk.CTkOptionMenu(filters, values=cargos, command=self._on_filter_changed)
+        self.cargo_selector.set("Todos")
+        self.cargo_selector.grid(row=0, column=2, padx=5, sticky="ew")
         cidades = ["TODAS"] + (misc_repo.get_city_list_from_db() if misc_repo else [])
         self.cidade_selector = CTkScrollableComboBox(filters, values=cidades, command=self._on_filter_changed)
         self.cidade_selector.set("TODAS")
-        self.cidade_selector.grid(row=0, column=2, padx=(0,10))
+        self.cidade_selector.grid(row=0, column=3, padx=(0,10), sticky="ew")
         self.only_candidates_var = ctk.BooleanVar(value=False) 
         self.only_candidates_checkbox = ctk.CTkCheckBox(filters, text="Apenas Candidatos", variable=self.only_candidates_var, command=self._on_filter_changed)
-        self.only_candidates_checkbox.grid(row=0, column=3, padx=(0,10))
-        tree_frame = ctk.CTkFrame(self.person_panel)
-        tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        tree_frame.grid_rowconfigure(0, weight=1); tree_frame.grid_columnconfigure(0, weight=1)
+        self.only_candidates_checkbox.grid(row=0, column=4, padx=(0,10))
+        
         self._style_treeview()
         cols = ("ID", "Nome", "Apelido", "Data de Nascimento", "Celular", "Email", "Cidade") 
-        self.person_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Custom.Treeview")
-        col_configs = {"ID": {'width': 50, 'anchor': 'center'}, "Nome": {'width': 250}, "Apelido": {'width': 150}, "Data de Nascimento": {'width': 120, 'anchor': 'center'}, "Celular": {'width': 120}, "Email": {'width': 220}, "Cidade": {'width': 150}}
+        self.person_tree = ttk.Treeview(self.person_panel, columns=cols, show="headings", style="Custom.Treeview")
+        col_configs = {"ID": {'width': 40, 'anchor': 'center'}, "Nome": {'width': 220}, "Apelido": {'width': 140}, "Data de Nascimento": {'width': 100, 'anchor': 'center'}, "Celular": {'width': 110}, "Email": {'width': 200}, "Cidade": {'width': 140}}
         for col, config in col_configs.items():
             self.person_tree.heading(col, text=col, command=lambda _col=col: self._sort_treeview_column('Pessoas', _col))
             self.person_tree.column(col, width=config.get('width', 150), anchor=config.get('anchor', 'w'))
         self.person_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         self.person_tree.bind("<Double-1>", self.on_tree_double_click)
-        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.person_tree.yview, style="Vertical.TScrollbar")
+        scrollbar = ttk.Scrollbar(self.person_panel, orient="vertical", command=self.person_tree.yview, style="Vertical.TScrollbar")
         self.person_tree.configure(yscrollcommand=scrollbar.set)
-        self.person_tree.grid(row=0, column=0, sticky="nsew"); scrollbar.grid(row=0, column=1, sticky="ns")
+        self.person_tree.grid(row=1, column=0, sticky="nsew", padx=(10,0), pady=(0, 10))
+        scrollbar.grid(row=1, column=1, sticky="ns", padx=(0,10), pady=(0, 10))
+        
         self.person_pagination_frame = self._create_pagination_controls(self.person_panel, 'Pessoas')
-        self.person_pagination_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
+        self.person_pagination_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         
     def _create_org_panel(self):
-        self.org_panel = ctk.CTkFrame(self.content_panel, corner_radius=0, fg_color="transparent")
-        self.org_panel.grid_rowconfigure(2, weight=1); self.org_panel.grid_columnconfigure(0, weight=1)
-        header = ctk.CTkFrame(self.org_panel, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
-        header.grid_columnconfigure(0, weight=1)
-        self.org_title_label = ctk.CTkLabel(header, text="Organizações", font=ctk.CTkFont(size=16, weight="bold"))
-        self.org_title_label.grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(header, text="Nova Organização", command=lambda: self.open_organization_form(None)).grid(row=0, column=1, sticky="e")
+        # O painel agora é criado dentro do 'view_container'
+        self.org_panel = ctk.CTkFrame(self.view_container, corner_radius=0, fg_color="transparent")
+        # --- INÍCIO DA CORREÇÃO ---
+        self.org_panel.grid_rowconfigure(1, weight=1) # Linha 1 (da Treeview) expande
+        self.org_panel.grid_columnconfigure(0, weight=1) # Coluna 0 (da Treeview) expande
+        # --- FIM DA CORREÇÃO ---
+
         filters = ctk.CTkFrame(self.org_panel, fg_color="transparent")
-        filters.grid(row=1, column=0, sticky="ew", padx=10, pady=(0,10))
+        filters.grid(row=0, column=0, sticky="ew", padx=10, pady=(0,10))
         filters.grid_columnconfigure(0, weight=1)
         self.org_search_entry = ctk.CTkEntry(filters, placeholder_text="Buscar por nome fantasia ou razão social...")
         self.org_search_entry.grid(row=0, column=0, sticky="ew", padx=(0,5))
         self.org_search_entry.bind("<KeyRelease>", self._on_search_key_release)
-        tree_frame = ctk.CTkFrame(self.org_panel); tree_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        tree_frame.grid_rowconfigure(0, weight=1); tree_frame.grid_columnconfigure(0, weight=1)
+        # --- INÍCIO DA CORREÇÃO ---
+        # Treeview e Scrollbar diretamente no org_panel
         cols = ("ID", "Nome Fantasia", "CNPJ", "Telefone", "Cidade")
-        self.org_tree = ttk.Treeview(tree_frame, columns=cols, show="headings", style="Custom.Treeview")
+        self.org_tree = ttk.Treeview(self.org_panel, columns=cols, show="headings", style="Custom.Treeview")
+        
         col_configs_org = {"ID": {'width': 50, 'anchor':'center'}, "Nome Fantasia": {'width': 350}, "CNPJ": {'width': 160, 'anchor': 'center'}, "Telefone": {'width': 150}, "Cidade": {'width': 200}}
         for col, config in col_configs_org.items():
             self.org_tree.heading(col, text=col, command=lambda _col=col: self._sort_treeview_column('Organizacoes', _col))
             self.org_tree.column(col, width=config.get('width', 150), anchor=config.get('anchor', 'w'))
-        self.org_tree.bind("<<TreeviewSelect>>", self.on_tree_select); self.org_tree.bind("<Double-1>", self.on_tree_double_click)
-        scrollbar_org = ttk.Scrollbar(tree_frame, orient="vertical", command=self.org_tree.yview, style="Vertical.TScrollbar")
-        self.org_tree.configure(yscrollcommand=scrollbar_org.set); self.org_tree.grid(row=0, column=0, sticky="nsew"); scrollbar_org.grid(row=0, column=1, sticky="ns")
+            
+        self.org_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.org_tree.bind("<Double-1>", self.on_tree_double_click)
+        
+        scrollbar_org = ttk.Scrollbar(self.org_panel, orient="vertical", command=self.org_tree.yview, style="Vertical.TScrollbar")
+        self.org_tree.configure(yscrollcommand=scrollbar_org.set)
+        
+        self.org_tree.grid(row=1, column=0, sticky="nsew", padx=(10,0), pady=(0, 10))
+        scrollbar_org.grid(row=1, column=1, sticky="ns", padx=(0,10), pady=(0, 10))
+        # --- FIM DA CORREÇÃO ---
         self.org_pagination_frame = self._create_pagination_controls(self.org_panel, 'Organizacoes')
-        self.org_pagination_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
+        self.org_pagination_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=5)   
     
     def _create_right_panel_widgets(self):
         header_frame = ctk.CTkFrame(self.right_panel, fg_color="transparent")
@@ -275,19 +351,40 @@ class ContactsView(ctk.CTkFrame):
         for widget in self.details_scrollframe.winfo_children(): widget.destroy()
         ctk.CTkLabel(self.details_scrollframe, text="Selecione um contato na lista para ver os detalhes.", wraplength=200, text_color="gray").pack(expand=True, padx=20, pady=20)
 
+    # Em modules/contacts_view.py
+
+    # Em modules/contacts_view.py
+
     def _style_treeview(self):
         style = ttk.Style()
         bg_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["fg_color"])
         text_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkLabel"]["text_color"])
         header_bg = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkFrame"]["top_fg_color"])
         selected_color = self._apply_appearance_mode(ctk.ThemeManager.theme["CTkButton"]["fg_color"])
+        
         theme_to_use = "clam" if "clam" in style.theme_names() else "default"
         style.theme_use(theme_to_use)
-        style.configure("Custom.Treeview", background=bg_color, foreground=text_color, 
-                        fieldbackground=bg_color, borderwidth=0, rowheight=28)
+
+        # --- INÍCIO DA CORREÇÃO ---
+        # Define a fonte usando o formato de TUPLA que o ttk.Treeview entende
+        style.configure("Custom.Treeview", 
+                        background=bg_color, 
+                        foreground=text_color, 
+                        fieldbackground=bg_color, 
+                        borderwidth=0, 
+                        rowheight=18, 
+                        font=(config.FONT_FAMILY, 10)) # <-- CORRIGIDO AQUI
+        
         style.map("Custom.Treeview", background=[('selected', selected_color)])
-        style.configure("Custom.Treeview.Heading", background=header_bg, foreground=text_color, 
-                        relief="flat", font=ctk.CTkFont(family="Calibri", size=11, weight="bold"))
+        
+        # Define a fonte do cabeçalho usando o formato de TUPLA também
+        style.configure("Custom.Treeview.Heading", 
+                        background=header_bg, 
+                        foreground=text_color, 
+                        relief="flat", 
+                        font=(config.FONT_FAMILY, 11, "bold")) # <-- CORRIGIDO AQUI
+        # --- FIM DA CORREÇÃO ---
+        
         style.map("Custom.Treeview.Heading", relief=[('active','flat'), ('pressed','flat')])
 
     def _apply_appearance_mode(self, color_tuple):
@@ -304,22 +401,36 @@ class ContactsView(ctk.CTkFrame):
         if first_person_button:
             self.on_list_button_click('Pessoas', first_person_button)
         
+# Em modules/contacts_view.py
+
     def on_list_button_click(self, list_type: str, button: ctk.CTkButton):
         if self.active_list_button and self.active_list_button.winfo_exists():
             self.active_list_button.configure(fg_color="transparent")
         if button and button.winfo_exists():
             button.configure(fg_color=("gray75", "gray25"))
             self.active_list_button = button
+            
         if list_type == 'Pessoas':
             self.org_panel.grid_remove()
             self.person_panel.grid(row=0, column=0, sticky="nsew")
             self.current_view_mode = 'Pessoas'
+            
+            # --- ATUALIZA O CABEÇALHO PERMANENTE ---
+            self.view_title_label.configure(text="Pessoas")
+            self.new_entity_button.configure(text="Nova Pessoa", command=lambda: self.app.dispatch("open_form", form_name="person", parent_view=self))
+            
             self.person_current_page = 1 
             self._trigger_data_fetch()
+            
         elif list_type == 'Organizacoes':
             self.person_panel.grid_remove()
             self.org_panel.grid(row=0, column=0, sticky="nsew")
             self.current_view_mode = 'Organizacoes'
+            
+            # --- ATUALIZA O CABEÇALHO PERMANENTE ---
+            self.view_title_label.configure(text="Organizações")
+            self.new_entity_button.configure(text="Nova Organização", command=lambda: self.open_organization_form(None))
+
             self.org_current_page = 1
             self._trigger_data_fetch()
 
@@ -351,12 +462,23 @@ class ContactsView(ctk.CTkFrame):
         
         threading.Thread(target=self._fetch_and_display_data_thread, daemon=True).start()
 
+# Em modules/contacts_view.py
+
     def _fetch_and_display_data_thread(self):
         try:
             if self.current_view_mode == 'Pessoas':
                 repo = self.repos.get("person")
                 if not repo: return
-                filters = {'search_term': self.person_search_entry.get().strip(), 'cidade': self.cidade_selector.get(), 'only_candidates': self.only_candidates_var.get()}
+                
+                # --- GARANTE QUE O NOVO FILTRO SEJA LIDO AQUI ---
+                filters = {
+                    'search_term': self.person_search_entry.get().strip(),
+                    'cidade': self.cidade_selector.get(),
+                    'only_candidates': self.only_candidates_var.get(),
+                    'ano_eleicao': self.ano_eleicao_selector.get(),
+                    'cargo': self.cargo_selector.get() # <-- Linha relevante
+                }
+                
                 total_items = repo.count_pessoas(**filters)
                 paginated_data = repo.get_paginated_pessoas(page=self.person_current_page, items_per_page=self.person_items_per_page, sort_by=self.person_last_sort_column, sort_desc=self.person_last_sort_reverse, **filters)
                 self.after(0, self._update_ui_with_person_data, paginated_data, total_items)
@@ -369,7 +491,9 @@ class ContactsView(ctk.CTkFrame):
                 total_items = repo.count_organizacoes(search_term)
                 paginated_data = repo.get_all_organizacoes(search_term=search_term, limit=self.org_items_per_page, offset=offset)
                 self.after(0, self._update_ui_with_org_data, paginated_data, total_items)
-        finally: self._data_fetch_lock.release()
+        finally:
+            if self._data_fetch_lock.locked():
+                self._data_fetch_lock.release()
 
     def _update_ui_with_person_data(self, data: list[Pessoa], total_items: int):
         tree = self.person_tree

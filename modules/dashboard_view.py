@@ -1,200 +1,193 @@
 import customtkinter as ctk
-from tkinter import messagebox
 from datetime import datetime
 import threading
 import logging
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np # Importa o numpy para o novo gráfico
 
+# Importa as janelas e funções necessárias
 from modules.evento_form_window import EventoFormWindow
 from modules.atendimento_form_window import AtendimentoFormWindow
 from popups.birthday_windows import UpcomingBirthdaysWindow
 from popups.helpers import format_date_with_weekday_robust
-# MUDANÇA: Precisamos importar os DTOs para checagem de tipo e acesso correto
-from dto.pessoa import Pessoa
-from dto.candidatura import Candidatura
+
 
 class DashboardView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app):
+    def __init__(self, parent, repos: dict, app, initial_filters=None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app
-        
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=1)
+        self.accent_color = "#00A9E0"
 
-        self.scrollable_frame = ctk.CTkScrollableFrame(self, fg_color="transparent", label_text="")
-        self.scrollable_frame.grid(row=0, column=0, sticky="nsew")
-        self.scrollable_frame.grid_columnconfigure((0, 1, 2), weight=1, uniform="group1")
+        # Configuração da grelha principal
+        self.grid_rowconfigure(2, weight=1) # Linha 2 (conteúdo principal) expande
+        self.grid_columnconfigure(0, weight=3) # Coluna principal (esquerda) é mais larga
+        self.grid_columnconfigure(1, weight=1) # Coluna lateral (direita) é mais estreita
+        
+        self.fig = None # Para a limpeza de recursos
         
         self._create_layout()
-        self.refresh_all_data()
-
-    def on_data_updated(self):
-        logging.info("DashboardView: Atualizando dados devido ao evento 'data_changed'.")
-        self.refresh_all_data()
-
-    def refresh_all_data(self):
-        self._load_stats()
-        self._populate_feed_card()
-        self._populate_agenda_card()
-        self.refresh_atendimentos_list()
-        self._populate_birthday_card()
+        self.after(50, self.refresh_all_data)
 
     def _create_layout(self):
-        period_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        period_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=10, pady=(0, 10))
-        ctk.CTkLabel(period_frame, text="Período:", font=ctk.CTkFont(weight="bold")).pack(side="left")
-        period_selector = ctk.CTkSegmentedButton(period_frame, values=["Hoje", "Últimos 7 Dias", "Este Mês", "Este Ano"])
-        period_selector.set("Este Mês")
-        period_selector.pack(side="left", padx=10)
-
-        self._create_and_populate_kpi_cards(self.scrollable_frame, row=1)
-        self._create_chart_card(self.scrollable_frame, "Novos Contatos por Mês", row=2, col=0, colspan=2)
+        # --- LINHA 0: Painel de Boas-Vindas ---
+        self._create_welcome_card(row=0, col=0, colspan=2)
         
-        self.feed_card, self.feed_content_frame = self._create_feed_card(self.scrollable_frame, "Feed de Atividades Recentes", row=2, col=2, rowspan=2)
-        self.agenda_card = self._create_list_card(self.scrollable_frame, "Minha Agenda do Dia", row=3, col=0)
-        self.atendimentos_card = self._create_list_card(self.scrollable_frame, "Atendimentos Urgentes", row=3, col=1)
-        self.birthday_card = self._create_birthday_card(self.scrollable_frame, "Aniversariantes da Semana", row=4, col=0)
-        
-        self._create_quick_actions_card(self.scrollable_frame, "Acesso Rápido", row=4, col=1)
-        self._create_map_card(self.scrollable_frame, "Mapa de Contatos", row=4, col=2, colspan=1)
+        # --- LINHA 1: KPIs e Acesso Rápido (alinhados) ---
+        self._create_top_row_frame(row=1, col=0, colspan=2)
 
-    def _create_card_base(self, parent, title, row, col, rowspan=1, colspan=1):
-        card = ctk.CTkFrame(parent, border_width=1)
-        card.grid(row=row, column=col, rowspan=rowspan, columnspan=colspan, padx=10, pady=10, sticky="nsew")
+        # --- LINHA 2: Conteúdo Principal ---
+        # Frame para a coluna principal (esquerda)
+        main_column_frame = ctk.CTkFrame(self, fg_color="transparent")
+        main_column_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
+        main_column_frame.grid_rowconfigure(0, weight=1) # Gráfico
+        main_column_frame.grid_rowconfigure(1, weight=1) # Aniversariantes
+        main_column_frame.grid_columnconfigure(0, weight=1)
+        
+        self._create_chart_card("Candidatos por Cargo e Ano", main_column_frame, row=0, col=0)
+        self.birthday_card = self._create_birthday_card(main_column_frame, "Aniversariantes da Semana", row=1, col=0)
+        
+        # Frame para a coluna lateral (direita)
+        right_column_frame = ctk.CTkFrame(self, fg_color="transparent")
+        right_column_frame.grid(row=2, column=1, sticky="nsew", padx=(0, 10), pady=10)
+        right_column_frame.grid_rowconfigure((0, 1), weight=1)
+        right_column_frame.grid_columnconfigure(0, weight=1)
+        
+        self.agenda_card = self._create_list_card(right_column_frame, "Agenda do Dia", row=0, col=0)
+        self.atendimentos_card = self._create_list_card(right_column_frame, "Atendimentos Urgentes", row=1, col=0)
+        
+    # --- MÉTODOS DE CRIAÇÃO DE WIDGETS ---
+
+    def _create_welcome_card(self, row, col, colspan):
+        card = ctk.CTkFrame(self, fg_color="transparent")
+        card.grid(row=row, column=col, columnspan=colspan, sticky="ew", padx=10, pady=(0, 10))
         card.grid_columnconfigure(0, weight=1)
+        user_name = self.app.logged_in_user.nome_completo or self.app.logged_in_user.nome_usuario
+        ctk.CTkLabel(card, text=f"Bem-vindo, {user_name.split(' ')[0]}!", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, sticky="w")
+        self.time_label = ctk.CTkLabel(card, text="", font=ctk.CTkFont(size=14))
+        self.time_label.grid(row=0, column=1, sticky="e")
+        self._update_time()
+
+    def _update_time(self):
+        dias = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
+        meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+        now = datetime.now()
+        dia_semana = dias[now.weekday()]
+        mes_ano = meses[now.month - 1]
+        time_str = now.strftime(f"{dia_semana}, %d de {mes_ano} de %Y | %H:%M:%S")
+        self.time_label.configure(text=time_str)
+        self.after(1000, self._update_time)
+
+    def _create_top_row_frame(self, row, col, colspan):
+        top_frame = ctk.CTkFrame(self)
+        top_frame.grid(row=row, column=col, columnspan=colspan, sticky="ew", padx=10, pady=10)
+        top_frame.grid_columnconfigure(0, weight=1)
+
+        # KPIs
+        kpi_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        kpi_frame.pack(fill="x", expand=True)
+        kpi_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        self.card_pessoas = self._create_kpi_card(kpi_frame, "Total de Pessoas", "...", 0)
+        self.card_proposicoes = self._create_kpi_card(kpi_frame, "Proposições no Ano", "...", 1)
+        self.card_votos_sim = self._create_kpi_card(kpi_frame, "Votos 'Sim'", "...", 2)
         
-        title_frame = ctk.CTkFrame(card, fg_color="transparent")
-        title_frame.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 5))
-        ctk.CTkLabel(title_frame, text=title, font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        
-        return card, title_frame
+        # Acesso Rápido
+        actions_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        actions_frame.pack(fill="x", expand=True, pady=(10,0))
+        actions_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        ctk.CTkButton(actions_frame, text="Novo Contato", height=40, command=lambda: self.app.dispatch("open_form", form_name="person")).grid(row=0, column=0, padx=(0,5), sticky="ew")
+        ctk.CTkButton(actions_frame, text="Novo Atendimento", height=40, command=lambda: self.app.dispatch("navigate", module_name="Atendimentos")).grid(row=0, column=1, padx=5, sticky="ew")
+        ctk.CTkButton(actions_frame, text="Acessar Mapa Geo", height=40, command=lambda: self.app.dispatch("navigate", module_name="Geolocalização")).grid(row=0, column=2, padx=(5,0), sticky="ew")
 
     def _create_kpi_card(self, parent, title, value, col):
-        card, _ = self._create_card_base(parent, title, row=0, col=col)
-        card.grid_rowconfigure(1, weight=1)
-        value_label = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=36, weight="bold"))
-        value_label.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 15))
+        card = ctk.CTkFrame(parent)
+        card.grid(row=0, column=col, padx=10, sticky="nsew")
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=13)).pack(pady=(10, 2), padx=10)
+        value_label = ctk.CTkLabel(card, text=value, font=ctk.CTkFont(size=28, weight="bold"), text_color=self.accent_color)
+        value_label.pack(pady=(0, 10), padx=10)
         card.value_label = value_label
         return card
 
-    def _create_and_populate_kpi_cards(self, parent, row):
-        kpi_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        kpi_frame.grid(row=row, column=0, columnspan=3, sticky="ew", padx=0, pady=0)
-        kpi_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
-        
-        self.card_pessoas = self._create_kpi_card(kpi_frame, "Total de Pessoas", "...", 0)
-        self.card_atendimentos = self._create_kpi_card(kpi_frame, "Atendimentos Pendentes", "...", 1)
-        self.card_proposicoes = self._create_kpi_card(kpi_frame, "Proposições no Ano", "...", 2)
-        self.card_votos_sim = self._create_kpi_card(kpi_frame, "Votos 'Sim'", "...", 3)
-        
-    def _create_chart_card(self, parent, title, row, col, colspan):
-        card, _ = self._create_card_base(parent, title, row, col, colspan=colspan)
-        card.grid_rowconfigure(1, weight=1)
-        chart_placeholder = ctk.CTkFrame(card, fg_color=("gray75", "gray25"))
-        chart_placeholder.grid(row=1, column=0, sticky="nsew", padx=15, pady=(5, 15))
-        ctk.CTkLabel(chart_placeholder, text="Gráfico em desenvolvimento...").pack(expand=True)
-        return card
-
-    def _create_feed_card(self, parent, title, row, col, rowspan):
-        card, _ = self._create_card_base(parent, title, row, col, rowspan=rowspan)
-        card.grid_rowconfigure(1, weight=1)
-        feed_content = ctk.CTkScrollableFrame(card, label_text="")
-        feed_content.grid(row=1, column=0, sticky="nsew", padx=15, pady=(5, 15))
-        return card, feed_content
-
     def _create_list_card(self, parent, title, row, col):
-        card, _ = self._create_card_base(parent, title, row, col)
+        card = ctk.CTkFrame(parent)
+        card.grid(row=row, column=col, sticky="nsew", pady=10)
+        card.grid_columnconfigure(0, weight=1)
         card.grid_rowconfigure(1, weight=1)
-        content_frame = ctk.CTkScrollableFrame(card, label_text="", fg_color="transparent")
-        content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
-        card.content_frame = content_frame 
-        return card
-        
-    def _create_birthday_card(self, parent, title, row, col):
-        card, title_frame = self._create_card_base(parent, title, row, col)
-        card.grid_rowconfigure(1, weight=1)
-        ctk.CTkButton(title_frame, text="Ver todos", height=25, width=80, 
-                      command=self._open_all_birthdays_window).pack(side="right")
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
         content_frame = ctk.CTkScrollableFrame(card, label_text="", fg_color="transparent")
         content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
         card.content_frame = content_frame
         return card
         
-    def _create_quick_actions_card(self, parent, title, row, col):
-        card, _ = self._create_card_base(parent, title, row, col)
-        button_frame = ctk.CTkFrame(card, fg_color="transparent")
-        button_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=10)
-        button_frame.grid_columnconfigure((0, 1, 2), weight=1)
-        ctk.CTkButton(button_frame, text="Novo Contato", command=lambda: self.app.dispatch("open_form", form_name="person")).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        ctk.CTkButton(button_frame, text="Novo Atendimento", command=lambda: self.app.dispatch("navigate", module_name="Atendimentos")).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        ctk.CTkButton(button_frame, text="Novo Evento", command=lambda: self.app.dispatch("navigate", module_name="Agenda")).grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+    def _create_birthday_card(self, parent, title, row, col):
+        card = ctk.CTkFrame(parent)
+        card.grid(row=row, column=col, sticky="nsew", pady=10)
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(1, weight=1)
+        
+        title_frame = ctk.CTkFrame(card, fg_color="transparent")
+        title_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        ctk.CTkLabel(title_frame, text=title, font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+        ctk.CTkButton(title_frame, text="Ver todos", height=25, width=80, 
+                      command=lambda: UpcomingBirthdaysWindow(self.app, self.repos)).pack(side="right")
+                      
+        content_frame = ctk.CTkScrollableFrame(card, label_text="", fg_color="transparent")
+        content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 5))
+        card.content_frame = content_frame
         return card
 
-    def _create_map_card(self, parent, title, row, col, colspan):
-        card, _ = self._create_card_base(parent, title, row, col, colspan=colspan)
+    def _create_chart_card(self, title, parent, row, col):
+        card = ctk.CTkFrame(parent)
+        card.grid(row=row, column=col, sticky="nsew", pady=(0,10))
         card.grid_rowconfigure(1, weight=1)
         card.grid_columnconfigure(0, weight=1)
-        open_map_button = ctk.CTkButton(card, text="Abrir Mapa Interativo", height=40, font=ctk.CTkFont(size=14, weight="bold"),
-                                        command=lambda: self.app.dispatch("navigate", module_name="Geolocalização"))
-        open_map_button.grid(row=1, column=0, sticky="ew", padx=20, pady=20)
-        return card
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        self.chart_frame = ctk.CTkFrame(card, fg_color=("gray85", "gray18"))
+        self.chart_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0,10))
 
-    def _load_stats(self):
+    # --- MÉTODOS DE ATUALIZAÇÃO DE DADOS ---
+    
+    def on_data_updated(self):
+        self.refresh_all_data()
+
+    def refresh_all_data(self):
+        threading.Thread(target=self._fetch_and_populate_data, daemon=True).start()
+
+    def _fetch_and_populate_data(self):
         report_service = self.repos.get("report")
         if not report_service: return
         stats = report_service.get_dashboard_stats()
-        self.card_pessoas.value_label.configure(text=str(stats.get('total_pessoas', 0)))
-        self.card_atendimentos.value_label.configure(text=str(stats.get('total_atendimentos_pendentes', 0)))
-        self.card_proposicoes.value_label.configure(text=str(stats.get('total_proposicoes_ano', 0)))
-        self.card_votos_sim.value_label.configure(text=str(stats.get('votos_sim', 0)))
+        def update_ui():
+            if not self.winfo_exists(): return
+            self.card_pessoas.value_label.configure(text=str(stats.get('total_pessoas', 0)))
+            self.card_proposicoes.value_label.configure(text=str(stats.get('total_proposicoes_ano', 0)))
+            self.card_votos_sim.value_label.configure(text=str(stats.get('votos_sim', 0)))
+            self._populate_agenda_card()
+            self._populate_atendimentos_card()
+            self._populate_birthday_card()
+            self._populate_chart_card()
+        self.after(0, update_ui)
 
-    def _populate_agenda_card(self):
-        content_frame = self.agenda_card.content_frame
-        for widget in content_frame.winfo_children(): widget.destroy()
-
-        crm_repo = self.repos.get("crm")
-        if not crm_repo: return
-
-        today_events = crm_repo.get_events_for_day(datetime.now().date())
-        if not today_events:
-            ctk.CTkLabel(content_frame, text="Nenhum compromisso para hoje.").pack(expand=True, padx=5, pady=10)
-            return
-
-        for evento in today_events:
-            evento_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-            evento_frame.pack(fill="x", pady=2)
-            evento_frame.grid_columnconfigure(1, weight=1)
-            time_str = evento.get('hora_inicio') or "Dia todo"
-            ctk.CTkLabel(evento_frame, text=time_str, font=ctk.CTkFont(size=12, weight="bold"), width=70).grid(row=0, column=0, padx=(0,10), sticky="n")
-            btn = ctk.CTkButton(evento_frame, text=evento['titulo'], anchor="w", fg_color="transparent", command=lambda e_id=evento['id_evento']: EventoFormWindow(self, self.repos, self.app, evento_id=e_id))
-            btn.grid(row=0, column=1, sticky="ew")
-
-    def refresh_atendimentos_list(self):
+    def _populate_atendimentos_card(self):
         content_frame = self.atendimentos_card.content_frame
         for widget in content_frame.winfo_children(): widget.destroy()
-
         crm_repo = self.repos.get("crm")
         if not crm_repo: return
-        
         urgent_atendimentos = crm_repo.get_urgent_atendimentos(limit=5)
         if not urgent_atendimentos:
             ctk.CTkLabel(content_frame, text="Nenhum atendimento urgente.").pack(expand=True, padx=5, pady=10)
             return
-
         priority_colors = {"Urgente": "#D32F2F", "Alta": "#F57C00"}
         for atendimento in urgent_atendimentos:
             atendimento_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
             atendimento_frame.pack(fill="x", pady=3, padx=5)
             atendimento_frame.grid_columnconfigure(1, weight=1)
             prioridade = atendimento.get('prioridade', 'Normal')
-            color = priority_colors.get(prioridade)
+            color = priority_colors.get(prioridade, ctk.ThemeManager.theme["CTkLabel"]["text_color"])
             prio_label = ctk.CTkLabel(atendimento_frame, text=prioridade.upper(), font=ctk.CTkFont(size=10, weight="bold"), width=10, text_color=color)
             prio_label.grid(row=0, column=0, padx=(0,10), sticky="n")
-            
-            title = atendimento['titulo']
-            solicitante = atendimento['nome_solicitante'] or 'N/A'
-            display_text = f"{title}\n(Solicitante: {solicitante})"
-            
+            display_text = f"{atendimento['titulo']}\n(Solicitante: {atendimento['nome_solicitante'] or 'N/A'})"
             btn = ctk.CTkButton(atendimento_frame, text=display_text, anchor="w", fg_color="transparent",
                                 command=lambda a_id=atendimento['id_atendimento']: AtendimentoFormWindow(self, self.repos, self.app, atendimento_id=a_id))
             btn.grid(row=0, column=1, sticky="ew")
@@ -206,65 +199,194 @@ class DashboardView(ctk.CTkFrame):
         report_service = self.repos.get("report")
         if not report_service: return
 
-        # A função agora retorna uma lista de tuplas: (data, Candidatura)
+        # Busca aniversariantes (prefeitos e vereadores) da próxima semana
         upcoming_birthdays = report_service.get_upcoming_birthdays(days=7, roles=['PREFEITO'])
-        
-        if not upcoming_birthdays:
-            ctk.CTkLabel(content_frame, text="Nenhum prefeito aniversariante na próxima semana.").pack(expand=True, padx=5, pady=10)
-            return
-        
-        last_date_header = None
-        for bday_date, candidatura in upcoming_birthdays: # MUDANÇA: a variável agora se chama 'candidatura'
-            date_str = format_date_with_weekday_robust(bday_date)
-            
-            if date_str != last_date_header:
-                last_date_header = date_str
-                ctk.CTkLabel(content_frame, text=date_str, font=ctk.CTkFont(weight="bold", underline=True)).pack(anchor="w", pady=(8,2), padx=5)
 
+        if not upcoming_birthdays:
+            ctk.CTkLabel(content_frame, text="Nenhum aniversariante na próxima semana.").pack(expand=True, padx=5, pady=10)
+            return
+
+        last_date_header = None
+        for bday_date, candidatura in upcoming_birthdays:
+            # Formata a data para "DD de Mês (DiaDaSemana)"
+            date_str_display = format_date_with_weekday_robust(bday_date)
+                            
+            # Se a data mudou, cria um novo cabeçalho
+            if date_str_display != last_date_header:
+                last_date_header = date_str_display
+                ctk.CTkLabel(content_frame, text=date_str_display, font=ctk.CTkFont(weight="bold", underline=True)).pack(anchor="w", pady=(8,2), padx=5)
+
+            pessoa = candidatura.pessoa
+
+            # Cria um frame para cada aniversariante para melhor alinhamento
             person_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-            person_frame.pack(fill="x", pady=0, padx=20)
+            person_frame.pack(fill="x", pady=0, padx=15)
             person_frame.grid_columnconfigure(1, weight=1)
 
             bday_str_ddmm = bday_date.strftime("%d/%m")
             ctk.CTkLabel(person_frame, text=bday_str_ddmm, font=ctk.CTkFont(size=12, weight="bold"), width=50).grid(row=0, column=0, padx=(0,10))
-            
-            # --- MUDANÇA AQUI ---
-            # O nome e o ID estão agora dentro do objeto 'pessoa' aninhado
-            pessoa = candidatura.pessoa 
+
             btn = ctk.CTkButton(person_frame, text=pessoa.nome, anchor="w", fg_color="transparent",
                                 command=lambda p_id=pessoa.id_pessoa: self.app.dispatch("open_form", form_name="person", person_id=p_id, parent_view=self))
-            btn.grid(row=0, column=1, sticky="ew")
+            btn.grid(row=0, column=1, sticky="ew")  
 
-    def _open_all_birthdays_window(self):
-        UpcomingBirthdaysWindow(self.app, self.repos)
+    def _populate_agenda_card(self):
+        # Implementação similar aos outros...
+        content_frame = self.agenda_card.content_frame
+        for widget in content_frame.winfo_children(): widget.destroy()
+        crm_repo = self.repos.get("crm")
+        if not crm_repo: return
+        today_events = crm_repo.get_events_for_day(datetime.now().date())
+        if not today_events:
+            ctk.CTkLabel(content_frame, text="Nenhum compromisso para hoje.").pack(expand=True, padx=5, pady=10)
+            return
+        for evento in today_events:
+            btn = ctk.CTkButton(content_frame, text=f"• {evento['titulo']}", anchor="w", fg_color="transparent",
+                                command=lambda e_id=evento['id_evento']: EventoFormWindow(self, self.repos, self.app, evento_id=e_id))
+            btn.pack(fill="x", padx=5)
 
-    def _populate_feed_card(self):
-        for widget in self.feed_content_frame.winfo_children(): widget.destroy()
-
+    def _populate_chart_card(self):
         report_service = self.repos.get("report")
-        if not report_service: return
-
-        recent_activities = report_service.get_recent_activities(limit=15)
-
-        if not recent_activities:
-            ctk.CTkLabel(self.feed_content_frame, text="Nenhuma atividade recente encontrada.").pack(expand=True, padx=5, pady=10)
+        if not report_service or not hasattr(self, 'chart_frame') or not self.chart_frame.winfo_exists(): return
+        for widget in self.chart_frame.winfo_children(): widget.destroy()
+        
+        data = report_service.get_candidate_count_by_role_year()
+        if not data:
+            ctk.CTkLabel(self.chart_frame, text="Não há dados de candidaturas.").pack(expand=True)
             return
 
-        for activity in recent_activities:
-            activity_frame = ctk.CTkFrame(self.feed_content_frame, fg_color="transparent")
-            activity_frame.pack(fill="x", pady=2, padx=5)
-            activity_frame.grid_columnconfigure(1, weight=1)
+        self.anos = sorted(list(set(d['ano_eleicao'] for d in data)), reverse=True)
+        self.cargos = sorted(list(set(d['cargo'] for d in data)))
+        
+        counts = {cargo: [next((item['contagem'] for item in data if item['ano_eleicao'] == ano and item['cargo'] == cargo), 0) for ano in self.anos] for cargo in self.cargos}
 
-            date_to_display_str = activity.get('data_local', activity['data'])
+        x = np.arange(len(self.anos))
+        width = 0.15
+        
+        self.update_idletasks()
+        is_dark = ctk.get_appearance_mode() == "Dark"
+        theme_index = 1 if is_dark else 0
+        bg_rgb_16bit = self.winfo_rgb(self.chart_frame.cget("fg_color")[theme_index])
+        bg_color_hex = f'#{(bg_rgb_16bit[0]>>8):02x}{(bg_rgb_16bit[1]>>8):02x}{(bg_rgb_16bit[2]>>8):02x}'
+        text_rgb_16bit = self.winfo_rgb(ctk.ThemeManager.theme["CTkLabel"]["text_color"][theme_index])
+        text_color_hex = f'#{(text_rgb_16bit[0]>>8):02x}{(text_rgb_16bit[1]>>8):02x}{(text_rgb_16bit[2]>>8):02x}'
+        
+        plt.style.use('dark_background' if is_dark else 'seaborn-v0_8-whitegrid')
+        self.fig, ax = plt.subplots(figsize=(5, 3), dpi=100)
+        self.fig.patch.set_facecolor(bg_color_hex)
+        ax.set_facecolor(bg_color_hex)
+
+        self.bars_map = {} # Dicionário para mapear barras a dados
+        for i, cargo in enumerate(self.cargos):
+            offset = (i - (len(self.cargos) - 1) / 2) * width
+            rects = ax.bar(x + offset, counts[cargo], width, label=cargo)
             
-            try:
-                date_obj = datetime.strptime(date_to_display_str, '%Y-%m-%d %H:%M')
-                date_time_str = date_obj.strftime("%d/%m %H:%M")
-            except (ValueError, TypeError):
-                date_time_str = date_to_display_str.split(" ")[0] if date_to_display_str else ""
+            # --- MUDANÇA PARA INTERATIVIDADE ---
+            # Ativa a "seleção" para cada barra e guarda os seus dados
+            for rect_index, rect in enumerate(rects):
+                rect.set_picker(5) # 5 é a tolerância do clique em pixels
+                self.bars_map[rect] = {"ano": self.anos[rect_index], "cargo": cargo}
+        
+        ax.set_ylabel('Nº de Candidatos', color=text_color_hex, fontsize=9)
+        ax.set_xticks(x, self.anos)
+        ax.legend(fontsize=8)
+        ax.tick_params(axis='y', colors=text_color_hex, labelsize=8)
+        ax.tick_params(axis='x', colors=text_color_hex, labelsize=8)
+        ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_color(text_color_hex); ax.spines['bottom'].set_color(text_color_hex)
+
+        self.fig.tight_layout(pad=0.5)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
+        
+        # --- MUDANÇA PARA INTERATIVIDADE ---
+        # Conecta o evento de clique no gráfico à nossa nova função
+        self.canvas.mpl_connect('pick_event', self._on_chart_pick)
+
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+
+    def _on_chart_pick(self, event):
+        """Esta função é chamada quando uma barra do gráfico é clicada."""
+        # O 'artist' é o objeto que foi clicado (a nossa barra)
+        bar = event.artist
+        
+        # Procura os dados associados a esta barra no nosso mapa
+        bar_data = self.bars_map.get(bar)
+        
+        if bar_data:
+            ano = bar_data['ano']
+            cargo = bar_data['cargo']
+            logging.info(f"Clique no gráfico detectado. Navegando para Contatos com filtro: Ano={ano}, Cargo={cargo}")
             
-            ctk.CTkLabel(activity_frame, text=f"{date_time_str} - {activity['tipo']}:", 
-                         font=ctk.CTkFont(size=11, weight="bold"), width=120, anchor="w").grid(row=0, column=0, sticky="nw")
+            # Prepara os filtros para enviar para a tela de contatos
+            filtros = {
+                "ano_eleicao": ano,
+                "cargo": cargo
+            }
             
-            ctk.CTkLabel(activity_frame, text=activity['descricao'], 
-                         font=ctk.CTkFont(size=11), wraplength=180, justify="left", anchor="w").grid(row=0, column=1, sticky="ew")
+            # Usa o sistema de eventos para navegar e passar os filtros
+            # (Isto ainda vai precisar que a tela de Contatos seja ajustada para receber os filtros)
+            self.app.dispatch("navigate_with_filter", module_name="Contatos", initial_filters=filtros)
+            
+            # Mostra uma mensagem temporária na barra de status
+            self.app.update_status_bar(f"Filtrando por: {cargo} de {ano}...")
+        else:
+            logging.warning("Clique no gráfico não mapeado para dados.")
+
+    # def _populate_chart_card(self):
+    #     # --- MÉTODO COMPLETAMENTE NOVO PARA O GRÁFICO DE CANDIDATOS ---
+    #     report_service = self.repos.get("report")
+    #     if not report_service or not hasattr(self, 'chart_frame') or not self.chart_frame.winfo_exists(): return
+    #     for widget in self.chart_frame.winfo_children(): widget.destroy()
+        
+    #     data = report_service.get_candidate_count_by_role_year()
+    #     if not data:
+    #         ctk.CTkLabel(self.chart_frame, text="Não há dados de candidaturas.").pack(expand=True)
+    #         return
+
+    #     # Processa os dados para o formato do gráfico
+    #     anos = sorted(list(set(d['ano_eleicao'] for d in data)), reverse=True)
+    #     cargos = sorted(list(set(d['cargo'] for d in data)))
+        
+    #     counts = {cargo: [next((item['contagem'] for item in data if item['ano_eleicao'] == ano and item['cargo'] == cargo), 0) for ano in anos] for cargo in cargos}
+
+    #     x = np.arange(len(anos))
+    #     width = 0.15 # Largura de cada barra
+        
+    #     self.update_idletasks()
+    #     is_dark = ctk.get_appearance_mode() == "Dark"
+    #     theme_index = 1 if is_dark else 0
+    #     bg_rgb_16bit = self.winfo_rgb(self.chart_frame.cget("fg_color")[theme_index])
+    #     bg_color_hex = f'#{(bg_rgb_16bit[0]>>8):02x}{(bg_rgb_16bit[1]>>8):02x}{(bg_rgb_16bit[2]>>8):02x}'
+    #     text_rgb_16bit = self.winfo_rgb(ctk.ThemeManager.theme["CTkLabel"]["text_color"][theme_index])
+    #     text_color_hex = f'#{(text_rgb_16bit[0]>>8):02x}{(text_rgb_16bit[1]>>8):02x}{(text_rgb_16bit[2]>>8):02x}'
+        
+    #     plt.style.use('dark_background' if is_dark else 'seaborn-v0_8-whitegrid')
+    #     self.fig, ax = plt.subplots(figsize=(5, 3), dpi=100)
+    #     self.fig.patch.set_facecolor(bg_color_hex)
+    #     ax.set_facecolor(bg_color_hex)
+
+    #     # Cria as barras agrupadas
+    #     for i, cargo in enumerate(cargos):
+    #         offset = (i - (len(cargos) - 1) / 2) * width
+    #         rects = ax.bar(x + offset, counts[cargo], width, label=cargo)
+    #         ax.bar_label(rects, padding=3, fontsize=7, color=text_color_hex)
+
+    #     ax.set_ylabel('Nº de Candidatos', color=text_color_hex, fontsize=9)
+    #     ax.set_xticks(x, anos)
+    #     ax.legend(fontsize=8)
+    #     ax.tick_params(axis='y', colors=text_color_hex, labelsize=8)
+    #     ax.tick_params(axis='x', colors=text_color_hex, labelsize=8)
+    #     ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False)
+    #     ax.spines['left'].set_color(text_color_hex); ax.spines['bottom'].set_color(text_color_hex)
+
+    #     self.fig.tight_layout(pad=0.5)
+    #     self.canvas = FigureCanvasTkAgg(self.fig, master=self.chart_frame)
+    #     self.canvas.draw()
+    #     self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+    
+    def cleanup(self):
+        if hasattr(self, 'fig') and self.fig:
+            plt.close(self.fig)
+        if hasattr(self, 'canvas') and self.canvas and self.canvas.get_tk_widget().winfo_exists():
+            self.canvas.get_tk_widget().destroy()

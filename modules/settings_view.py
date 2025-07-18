@@ -11,7 +11,7 @@ from popups.app_params_window import AppParamsWindow
 from functions.backup_helpers import execute_backup_thread, execute_restore_thread
 
 class SettingsView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app):
+    def __init__(self, parent, repos: dict, app, initial_filters=None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app

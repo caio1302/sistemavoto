@@ -4,7 +4,7 @@ from .proposicao_form_window import ProposicaoFormWindow
 from datetime import datetime
 
 class ProposicoesView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app):
+    def __init__(self, parent, repos: dict, app, initial_filters=None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app

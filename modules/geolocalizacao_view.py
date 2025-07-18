@@ -14,7 +14,7 @@ from dto.pessoa import Pessoa
 from dto.organizacao import Organizacao
 
 class GeolocalizacaoView(ctk.CTkFrame):
-    def __init__(self, parent, repos: dict, app): 
+    def __init__(self, parent, repos: dict, app, initial_filters=None):
         super().__init__(parent, fg_color="transparent")
         self.repos = repos
         self.app = app 
@@ -156,3 +156,8 @@ class GeolocalizacaoView(ctk.CTkFrame):
         except Exception as e:
             # Capture any remaining exceptions during marker drawing
             logging.error(f"Erro ao desenhar marcadores: {e}", exc_info=True)
+
+    def cleanup(self):
+            """Libera recursos do mapa antes de fechar a janela."""
+            if hasattr(self, 'map_widget') and self.map_widget and self.map_widget.winfo_exists():
+                self.map_widget.destroy()            
